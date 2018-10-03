@@ -5,6 +5,7 @@ import htsjdk.samtools.SamFiles;
 import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.Genotype;
 import htsjdk.variant.variantcontext.VariantContext;
+import htsjdk.variant.vcf.VCFHeader;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
 import org.broadinstitute.hellbender.CommandLineProgramTest;
@@ -15,12 +16,16 @@ import org.broadinstitute.hellbender.engine.AssemblyRegionWalker;
 import org.broadinstitute.hellbender.engine.FeatureDataSource;
 import org.broadinstitute.hellbender.testutils.ArgumentsBuilder;
 import org.broadinstitute.hellbender.testutils.VariantContextTestUtils;
+import org.broadinstitute.hellbender.testutils.CommandLineProgramTester;
 import org.broadinstitute.hellbender.tools.exome.orientationbiasvariantfilter.OrientationBiasUtils;
 import org.broadinstitute.hellbender.tools.walkers.annotator.StrandBiasBySample;
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.AssemblyBasedCallerArgumentCollection;
 import org.broadinstitute.hellbender.tools.walkers.validation.ConcordanceSummaryRecord;
+import org.broadinstitute.hellbender.tools.walkers.variantutils.ValidateVariants;
+import org.broadinstitute.hellbender.utils.IntervalUtils;
 import org.broadinstitute.hellbender.utils.GATKProtectedVariantContextUtils;
 import org.broadinstitute.hellbender.utils.MathUtils;
+import org.broadinstitute.hellbender.utils.SimpleInterval;
 import org.broadinstitute.hellbender.utils.Utils;
 import org.broadinstitute.hellbender.utils.read.ArtificialReadUtils;
 import org.broadinstitute.hellbender.utils.read.GATKRead;
@@ -585,6 +590,52 @@ public class Mutect2IntegrationTest extends CommandLineProgramTest {
         for(VariantContext v : variants){
             Assert.assertEquals(v.getFilters().toString(), expectedFilters.next(), "filters don't match expected");
         }
+    }
+
+    @Test
+    public void testMitochondrialRefConf() throws Exception {
+        Utils.resetRandomGenerator();
+        final File unfilteredVcf = createTempFile("unfiltered", ".vcf");
+
+        final List<String> args = Arrays.asList("-I", NA12878_MITO_BAM.getAbsolutePath(),
+                "-" + M2ArgumentCollection.TUMOR_SAMPLE_SHORT_NAME, "NA12878",
+                "-R", MITO_REF.getAbsolutePath(),
+                "-L", "chrM:1-1000",
+                "-min-pruning", "5",
+                "-O", unfilteredVcf.getAbsolutePath(),
+                "-ERC", "GVCF",
+                "-LODB", "-2.0",
+                "-LODB", "0.0",
+                "-min-AF", "0.0");
+        runCommandLine(args);
+
+        //check ref conf-specific headers are output
+        final Pair<VCFHeader, List<VariantContext>> result = VariantContextTestUtils.readEntireVCFIntoMemory(unfilteredVcf.getAbsolutePath());
+        Assert.assertTrue(result.getLeft().hasFormatLine(GATKVCFConstants.TUMOR_LOD_KEY));
+        Assert.assertTrue(result.getLeft().getMetaDataLine(GATKVCFConstants.SYMBOLIC_ALLELE_DEFINITION_HEADER_TAG) != null);
+
+        final List<VariantContext> variants = result.getRight();
+        final Set<String> variantKeys = variants.stream().map(vc -> keyForVariant(vc)).collect(Collectors.toSet());
+        final List<String> expectedKeys = Arrays.asList(
+                "chrM:1-4 [G*, <NON_REF>]",
+                "chrM:5-5 [A*, <NON_REF>]",
+                "chrM:6-6 [C*, <NON_REF>]", //ref blocks will be dependent on TLOD band values
+                "chrM:152-152 [T*, C, <NON_REF>]",
+                "chrM:263-263 [A*, G, <NON_REF>]",
+                "chrM:297-297 [A*, C, AC, <NON_REF>]",
+                "chrM:301-301 [A*, AC, <NON_REF>]",
+                "chrM:302-302 [A*, AC, C, ACC, <NON_REF>]",
+                "chrM:310-310 [T*, TC, C, <NON_REF>]",
+                "chrM:750-750 [A*, G, <NON_REF>]");
+        Assert.assertTrue(expectedKeys.stream().allMatch(variantKeys::contains));
+
+        final CommandLineProgramTester validator = ValidateVariants.class::getSimpleName;
+        final ArgumentsBuilder args2 = new ArgumentsBuilder();
+        args2.addArgument("R", MITO_REF.getAbsolutePath());
+        args2.addArgument("V", unfilteredVcf.getAbsolutePath());
+        args2.addArgument("L", IntervalUtils.locatableToString(new SimpleInterval("chrM:1-1000")));
+        args2.add("-gvcf");
+        validator.runCommandLine(args2);  //will throw a UserException if GVCF isn't contiguous
     }
 
    @Test

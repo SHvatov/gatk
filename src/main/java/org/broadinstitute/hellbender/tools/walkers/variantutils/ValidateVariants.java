@@ -226,6 +226,13 @@ public final class ValidateVariants extends VariantWalker {
         if (VALIDATE_GVCF) {
             final SimpleInterval refInterval = ref.getInterval();
 
+            //if next VC refers to a previous genomic position, throw an error
+            if (previousInterval != null && refInterval.getStart() < previousInterval.getEnd()) {
+                final UserException e = new UserException(String.format("In a GVCF all records must ordered. Record: %s covers a position previously traversed.",
+                        vc.toStringWithoutGenotypes()));
+                throwOrWarn(e);
+            }
+
             // GenomeLocSortedSet will automatically merge intervals that are overlapping when setting `mergeIfIntervalOverlaps`
             // to true.  In a GVCF most blocks are adjacent to each other so they wouldn't normally get merged.  We check
             // if the current record is adjacent to the previous record and "overlap" them if they are so our set is as

@@ -83,7 +83,7 @@ public final class ReblockGVCF extends VariantWalker {
     @Advanced
     @Argument(fullName=HaplotypeCallerArgumentCollection.GQ_BAND_LONG_NAME, shortName=HaplotypeCallerArgumentCollection.GQ_BAND_SHORT_NAME,
             doc="Exclusive upper bounds for reference confidence GQ bands (must be in [1, 100] and specified in increasing order)")
-    public List<Integer> GVCFGQBands = new ArrayList<>();
+    public List<Number> GVCFGQBands = new ArrayList<>();
     {
         GVCFGQBands.add(20); GVCFGQBands.add(100);
     }

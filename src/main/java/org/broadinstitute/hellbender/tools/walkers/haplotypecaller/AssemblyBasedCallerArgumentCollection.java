@@ -130,4 +130,11 @@ public abstract class AssemblyBasedCallerArgumentCollection extends StandardCall
     @Argument(fullName = CORRECT_OVERLAPPING_BASE_QUALITIES_LONG_NAME)
     public boolean doNotCorrectOverlappingBaseQualities = false;
 
+    /**
+     * The reference confidence mode makes it possible to emit a per-bp or summarized confidence estimate for a site being strictly homozygous-reference.
+     * See https://software.broadinstitute.org/gatk/documentation/article.php?id=4017 for more details of how this works.
+     */
+    @Advanced
+    @Argument(fullName="emit-ref-confidence", shortName="ERC", doc="Mode for emitting reference confidence scores", optional = true)
+    public ReferenceConfidenceMode emitReferenceConfidence = ReferenceConfidenceMode.NONE;
 }
