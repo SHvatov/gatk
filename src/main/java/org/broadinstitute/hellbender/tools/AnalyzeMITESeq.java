@@ -475,7 +475,9 @@ public class AnalyzeMITESeq extends GATKTool {
             }
 
             if ( indelCount != 0 ) {
-                codonValues.add(indelCount %3 == 0 ? FRAME_PRESERVING_INDEL_INDEX : FRAME_SHIFTING_INDEL_INDEX);
+                if ( codonPhase >= 0 ) {
+                    codonValues.add(indelCount % 3 == 0 ? FRAME_PRESERVING_INDEL_INDEX : FRAME_SHIFTING_INDEL_INDEX);
+                }
 
                 // kill any further calling
                 while ( exonIterator.hasNext() ) {
