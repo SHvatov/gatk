@@ -111,18 +111,17 @@ public class AnalyzeMITESeq extends GATKTool {
                     return;
                 }
                 if ( read1 == null ) {
-                    if ( !read.isFirstOfPair() ) {
-                        throw new UserException("Pairing is messed up.  First read of pair is not a first read:" + read.getName());
-                    }
                     read1 = read;
                     return;
                 }
-                if ( !read.isSecondOfPair() ) {
-                    throw new UserException("Pairing is messed up.  Second read of pair is not a second read: " + read.getName());
-                }
                 if ( !read1.getName().equals(read.getName()) ) {
-                    throw new UserException("Pairing is messed up.  First read named " + read1.getName() +
-                            " Second read named " + read.getName());
+                    System.out.println("Read " + read1.getName() + " has no mate.");
+                    final ReadReport readReport = processRead(read1);
+                    if ( readReport != null ) {
+                        applyReport(readReport);
+                    }
+                    read1 = read;
+                    return;
                 }
                 final ReadReport readReport1 = processRead(read1);
                 final ReadReport readReport2 = processRead(read);
@@ -137,6 +136,15 @@ public class AnalyzeMITESeq extends GATKTool {
                 }
                 read1 = null;
             });
+        }
+        if ( read1 != null ) {
+            if ( read1.isPaired() ) {
+                System.out.println("Read " + read1.getName() + " has no mate.");
+            }
+            final ReadReport readReport = processRead(read1);
+            if ( readReport != null ) {
+                applyReport(readReport);
+            }
         }
     }
 
