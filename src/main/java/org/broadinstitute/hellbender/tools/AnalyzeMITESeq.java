@@ -96,57 +96,70 @@ public class AnalyzeMITESeq extends GATKTool {
 
         if ( !pairedMode ) {
             reads.forEach(read -> {
-                final ReadReport readReport = processRead(read);
-                if ( readReport != null ) {
-                    applyReport(readReport);
-                }
-            });
-        } else {
-            reads.forEach(read -> {
-                if ( !read.isPaired() ) {
+                try {
                     final ReadReport readReport = processRead(read);
                     if ( readReport != null ) {
                         applyReport(readReport);
                     }
-                    return;
+                } catch ( final Exception e ) {
+                    throw new GATKException("Caught unexpected exception on read " +nReadsTotal + ": " + read.getName(), e);
                 }
-                if ( read1 == null ) {
-                    read1 = read;
-                    return;
-                }
-                if ( !read1.getName().equals(read.getName()) ) {
-                    System.out.println("Read " + read1.getName() + " has no mate.");
-                    final ReadReport readReport = processRead(read1);
-                    if ( readReport != null ) {
-                        applyReport(readReport);
+            });
+        } else {
+            reads.forEach(read -> {
+                try {
+                    if ( !read.isPaired() ) {
+                        final ReadReport readReport = processRead(read);
+                        if ( readReport != null ) {
+                            applyReport(readReport);
+                        }
+                        return;
                     }
-                    read1 = read;
-                    return;
-                }
-                final ReadReport readReport1 = processRead(read1);
-                final ReadReport readReport2 = processRead(read);
-                if ( readReport1 == null ) {
-                    if ( readReport2 != null ) {
-                        applyReport(readReport2);
+                    if ( read1 == null ) {
+                        read1 = read;
+                        return;
                     }
-                } else if ( readReport2 == null ) {
-                    applyReport(readReport1);
-                } else {
-                    applyReport(readReport1, readReport2);
+                    if ( !read1.getName().equals(read.getName()) ) {
+                        System.out.println("Read " + read1.getName() + " has no mate.");
+                        final ReadReport readReport = processRead(read1);
+                        if ( readReport != null ) {
+                            applyReport(readReport);
+                        }
+                        read1 = read;
+                        return;
+                    }
+                    final ReadReport readReport1 = processRead(read1);
+                    final ReadReport readReport2 = processRead(read);
+                    if ( readReport1 == null ) {
+                        if ( readReport2 != null ) {
+                            applyReport(readReport2);
+                        }
+                    } else if ( readReport2 == null ) {
+                        applyReport(readReport1);
+                    } else {
+                        applyReport(readReport1, readReport2);
+                    }
+                    read1 = null;
+                } catch ( final Exception e ) {
+                    throw new GATKException("Caught unexpected exception on read " +nReadsTotal + ": " + read.getName(), e);
                 }
-                read1 = null;
             });
         }
         if ( read1 != null ) {
             if ( read1.isPaired() ) {
                 System.out.println("Read " + read1.getName() + " has no mate.");
             }
-            final ReadReport readReport = processRead(read1);
-            if ( readReport != null ) {
-                applyReport(readReport);
+            try {
+                final ReadReport readReport = processRead(read1);
+                if ( readReport != null ) {
+                    applyReport(readReport);
+                }
+            } catch ( final Exception e ) {
+                throw new GATKException("Caught unexpected exception on read " +nReadsTotal + ": " + read1.getName(), e);
             }
         }
     }
+
 
     @Override
     public Object onTraversalSuccess() {
@@ -191,15 +204,17 @@ public class AnalyzeMITESeq extends GATKTool {
             writer.write("AAA\tAAC\tAAG\tAAT\tACA\tACC\tACG\tACT\tAGA\tAGC\tAGG\tAGT\tATA\tATC\tATG\tATT\t"+
                     "CAA\tCAC\tCAG\tCAT\tCCA\tCCC\tCCG\tCCT\tCGA\tCGC\tCGG\tCGT\tCTA\tCTC\tCTG\tCTT\t"+
                     "GAA\tGAC\tGAG\tGAT\tGCA\tGCC\tGCG\tGCT\tGGA\tGGC\tGGG\tGGT\tGTA\tGTC\tGTG\tGTT\t"+
-                    "TAA\tTAC\tTAG\tTAT\tTCA\tTCC\tTCG\tTCT\tTGA\tTGC\tTGG\tTGT\tTTA\tTTC\tTTG\tTTT\n");
-            for ( int idx = 0; idx != nCodons; ++idx ) {
-                final long[] rowCounts = codonCounts[idx];
-                String prefix = "";
-                for ( int codonId = 0; codonId != N_REGULAR_CODONS; ++codonId ) {
-                    writer.write(prefix);
-                    prefix = "\t";
-                    writer.write(Long.toString(rowCounts[codonId]));
+                    "TAA\tTAC\tTAG\tTAT\tTCA\tTCC\tTCG\tTCT\tTGA\tTGC\tTGG\tTGT\tTTA\tTTC\tTTG\tTTT\t"+
+                    "NFS\tFS\tTotal\n");
+            for ( int codonId = 0; codonId != nCodons; ++codonId ) {
+                final long[] rowCounts = codonCounts[codonId];
+                long total = 0;
+                for ( final long count : rowCounts ) {
+                    writer.write(Long.toString(count));
+                    writer.write('\t');
+                    total += count;
                 }
+                writer.write(Long.toString(total));
                 writer.write('\n');
             }
         } catch ( final IOException ioe ) {
@@ -211,11 +226,11 @@ public class AnalyzeMITESeq extends GATKTool {
                       new OutputStreamWriter(new BufferedOutputStream(BucketUtils.createFile(indelsFile))) ) {
             final int nCodons = codonCounts.length;
             writer.write("NFS\tFS\tTotCvg\n");
-            for ( int idx = 0; idx != nCodons; ++idx ) {
-                final long[] rowCounts = codonCounts[idx];
+            for ( int codonId = 0; codonId != nCodons; ++codonId ) {
+                final long[] rowCounts = codonCounts[codonId];
                 long coverage = 0;
-                for ( int codonId = 0; codonId != N_REGULAR_CODONS; ++codonId ) {
-                    coverage += rowCounts[codonId];
+                for ( int codonValue = 0; codonValue != N_REGULAR_CODONS; ++codonValue ) {
+                    coverage += rowCounts[codonValue];
                 }
                 writer.write(Long.toString(rowCounts[FRAME_PRESERVING_INDEL_INDEX]));
                 writer.write('\t');
@@ -232,13 +247,13 @@ public class AnalyzeMITESeq extends GATKTool {
         try ( final OutputStreamWriter writer =
                       new OutputStreamWriter(new BufferedOutputStream(BucketUtils.createFile(aaFile))) ) {
             final int nCodons = codonCounts.length;
-            for ( int idx = 0; idx != nCodons; ++idx ) {
-                final long[] rowCounts = codonCounts[idx];
+            for ( int codonId = 0; codonId != nCodons; ++codonId ) {
+                final long[] rowCounts = codonCounts[codonId];
                 final SortedMap<Character,Long> aaCounts = new TreeMap<>();
-                for ( int codonId = 0; codonId != N_REGULAR_CODONS; ++codonId ) {
-                    aaCounts.merge(codonTranslation.charAt(codonId), rowCounts[codonId], Long::sum);
+                for ( int codonValue = 0; codonValue != N_REGULAR_CODONS; ++codonValue ) {
+                    aaCounts.merge(codonTranslation.charAt(codonValue), rowCounts[codonValue], Long::sum);
                 }
-                if ( idx == 0 ) {
+                if ( codonId == 0 ) {
                     String prefix = "";
                     for ( final char chr : aaCounts.keySet() ) {
                         writer.write(prefix);
@@ -492,9 +507,9 @@ public class AnalyzeMITESeq extends GATKTool {
         }
 
         public void report( final long[][] codonCounts ) {
-            int idx = firstCodonIndex;
+            int codonId = firstCodonIndex;
             for ( final int codonValue : codonValues ) {
-                codonCounts[idx++][codonValue] += 1;
+                codonCounts[codonId++][codonValue] += 1;
             }
         }
 
@@ -593,8 +608,8 @@ public class AnalyzeMITESeq extends GATKTool {
         }
 
         codonCounts = new long[orfLen / 3][];
-        for ( int idx = 0; idx != codonCounts.length; ++idx ) {
-            codonCounts[idx] = new long[CODON_COUNT_ROW_SIZE];
+        for ( int codonId = 0; codonId != codonCounts.length; ++codonId ) {
+            codonCounts[codonId] = new long[CODON_COUNT_ROW_SIZE];
         }
 
         // it's helpful to have this 0-length sentinel at the end of the list
@@ -603,7 +618,7 @@ public class AnalyzeMITESeq extends GATKTool {
 
     private ReadReport processRead( final GATKRead read ) {
         nReadsTotal += 1;
-        if ( read.isUnmapped() ) {
+        if (read.isUnmapped()) {
             nReadsUnmapped += 1;
             return null;
         }
@@ -613,15 +628,15 @@ public class AnalyzeMITESeq extends GATKTool {
         // find initial end-trim
         int start = 0;
         int hiQCount = 0;
-        while ( start < quals.length ) {
-            if ( quals[start] < minQ ) {
+        while (start < quals.length) {
+            if (quals[start] < minQ) {
                 hiQCount = 0;
-            } else if ( ++hiQCount == minLength ) {
+            } else if (++hiQCount == minLength) {
                 break;
             }
             start += 1;
         }
-        if ( start == quals.length ) {
+        if (start == quals.length) {
             nReadsLowQuality += 1;
             return null;
         }
@@ -630,17 +645,17 @@ public class AnalyzeMITESeq extends GATKTool {
         // find final end-trim
         int end = quals.length - 1;
         hiQCount = 0;
-        while ( end >= 0 ) {
-            if ( quals[end] < minQ ) {
+        while (end >= 0) {
+            if (quals[end] < minQ) {
                 hiQCount = 0;
-            } else if ( ++hiQCount == minLength ) {
+            } else if (++hiQCount == minLength) {
                 break;
             }
             end -= 1;
         }
         end += minLength;
 
-        return analyze( read, start, end );
+        return analyze(read, start, end);
     }
 
     private ReadReport analyze( final GATKRead read, final int start, final int end ) {
