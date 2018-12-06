@@ -160,7 +160,6 @@ public class AnalyzeMITESeq extends GATKTool {
         }
     }
 
-
     @Override
     public Object onTraversalSuccess() {
         long outputSize = variationCounts.stream().filter(entry -> entry.getCount() >= minVariantObservations).count();
@@ -219,28 +218,6 @@ public class AnalyzeMITESeq extends GATKTool {
             }
         } catch ( final IOException ioe ) {
             throw new UserException("Can't write "+codonsFile, ioe);
-        }
-
-        final String indelsFile = outputFilePrefix + ".indelCounts";
-        try ( final OutputStreamWriter writer =
-                      new OutputStreamWriter(new BufferedOutputStream(BucketUtils.createFile(indelsFile))) ) {
-            final int nCodons = codonCounts.length;
-            writer.write("NFS\tFS\tTotCvg\n");
-            for ( int codonId = 0; codonId != nCodons; ++codonId ) {
-                final long[] rowCounts = codonCounts[codonId];
-                long coverage = 0;
-                for ( int codonValue = 0; codonValue != N_REGULAR_CODONS; ++codonValue ) {
-                    coverage += rowCounts[codonValue];
-                }
-                writer.write(Long.toString(rowCounts[FRAME_PRESERVING_INDEL_INDEX]));
-                writer.write('\t');
-                writer.write(Long.toString(rowCounts[FRAME_SHIFTING_INDEL_INDEX]));
-                writer.write('\t');
-                writer.write(Long.toString(coverage));
-                writer.write('\n');
-            }
-        } catch ( final IOException ioe ) {
-            throw new UserException("Can't write "+indelsFile, ioe);
         }
 
         final String aaFile = outputFilePrefix + ".aaCounts";
