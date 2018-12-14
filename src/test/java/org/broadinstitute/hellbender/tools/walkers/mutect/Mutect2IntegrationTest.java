@@ -615,11 +615,9 @@ public class Mutect2IntegrationTest extends CommandLineProgramTest {
         Assert.assertTrue(result.getLeft().getMetaDataLine(GATKVCFConstants.SYMBOLIC_ALLELE_DEFINITION_HEADER_TAG) != null);
 
         final List<VariantContext> variants = result.getRight();
-        final Set<String> variantKeys = variants.stream().map(vc -> keyForVariant(vc)).collect(Collectors.toSet());
+        final List<String> variantKeys = variants.stream().map(vc -> keyForVariant(vc)).collect(Collectors.toList());
         final List<String> expectedKeys = Arrays.asList(
-                "chrM:1-4 [G*, <NON_REF>]",
-                "chrM:5-5 [A*, <NON_REF>]",
-                "chrM:6-6 [C*, <NON_REF>]", //ref blocks will be dependent on TLOD band values
+                //ref blocks will be dependent on TLOD band values
                 "chrM:152-152 [T*, C, <NON_REF>]",
                 "chrM:263-263 [A*, G, <NON_REF>]",
                 "chrM:297-297 [A*, C, AC, <NON_REF>]",
@@ -628,6 +626,8 @@ public class Mutect2IntegrationTest extends CommandLineProgramTest {
                 "chrM:310-310 [T*, TC, C, <NON_REF>]",
                 "chrM:750-750 [A*, G, <NON_REF>]");
         Assert.assertTrue(expectedKeys.stream().allMatch(variantKeys::contains));
+        //First entry should be a homRef block
+        Assert.assertTrue(variantKeys.get(0).contains("*, <NON_REF>\""));
 
         final CommandLineProgramTester validator = ValidateVariants.class::getSimpleName;
         final ArgumentsBuilder args2 = new ArgumentsBuilder();

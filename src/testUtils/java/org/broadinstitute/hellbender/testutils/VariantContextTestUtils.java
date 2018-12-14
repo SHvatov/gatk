@@ -586,7 +586,7 @@ public final class VariantContextTestUtils {
 
     public static VariantContext makeSomaticRef(final String contig, final int start, final double lod, final int end) {
         final VariantContextBuilder vcb = new VariantContextBuilder("test", contig, start, end, ALLELES);
-        vcb.attribute(VCFConstants.END_KEY, end);
+        vcb.attribute(VCFConstants.END_KEY, end).genotypes(makeSomaticRefGenotype(lod));
         return vcb.genotypes(makeSomaticRefGenotype(lod)).make();
     }
 

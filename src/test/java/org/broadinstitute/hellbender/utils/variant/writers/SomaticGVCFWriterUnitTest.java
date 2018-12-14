@@ -48,32 +48,32 @@ public class SomaticGVCFWriterUnitTest {
         final VariantContextBuilder vcb = new VariantContextBuilder("source", "contig", pos, pos, ALLELES);
 
         Genotype g = gb.attribute(GATKVCFConstants.TUMOR_LOD_KEY, 23.4).make();
-        Assert.assertFalse(writer.genotypeCanBeMergedInCurrentBlock(g));  //should be false if there's no current block
+        Assert.assertFalse(writer.gvcfBlockCombiner.genotypeCanBeMergedInCurrentBlock(g));  //should be false if there's no current block
         writer.add(vcb.genotypes(gb.make()).make());
 
         vcb.start(++pos).stop(pos);
         g = gb.attribute(GATKVCFConstants.TUMOR_LOD_KEY, 43.4).make();
-        Assert.assertTrue(writer.genotypeCanBeMergedInCurrentBlock(g));
+        Assert.assertTrue(writer.gvcfBlockCombiner.genotypeCanBeMergedInCurrentBlock(g));
         writer.add(vcb.genotypes(gb.make()).make());
 
         vcb.start(++pos).stop(pos);
         g = gb.attribute(GATKVCFConstants.TUMOR_LOD_KEY, 3.4).make();
-        Assert.assertFalse(writer.genotypeCanBeMergedInCurrentBlock(g));
+        Assert.assertFalse(writer.gvcfBlockCombiner.genotypeCanBeMergedInCurrentBlock(g));
         writer.add(vcb.genotypes(gb.make()).make());
 
         vcb.start(++pos).stop(pos);
         g = gb.attribute(GATKVCFConstants.TUMOR_LOD_KEY, 4.7).make();
-        Assert.assertTrue(writer.genotypeCanBeMergedInCurrentBlock(g));
+        Assert.assertTrue(writer.gvcfBlockCombiner.genotypeCanBeMergedInCurrentBlock(g));
         writer.add(vcb.genotypes(gb.make()).make());
 
         vcb.start(++pos).stop(pos);
         g = gb.attribute(GATKVCFConstants.TUMOR_LOD_KEY, 600.0).make();
-        Assert.assertFalse(writer.genotypeCanBeMergedInCurrentBlock(g));
+        Assert.assertFalse(writer.gvcfBlockCombiner.genotypeCanBeMergedInCurrentBlock(g));
         writer.add(vcb.genotypes(gb.make()).make());
 
         vcb.start(++pos).stop(pos);
         g = gb.attribute(GATKVCFConstants.TUMOR_LOD_KEY, 601.1).make();
-        Assert.assertTrue(writer.genotypeCanBeMergedInCurrentBlock(g));
+        Assert.assertTrue(writer.gvcfBlockCombiner.genotypeCanBeMergedInCurrentBlock(g));
         writer.add(vcb.genotypes(gb.make()).make());
 
         writer.close();
@@ -85,11 +85,11 @@ public class SomaticGVCFWriterUnitTest {
     public void testPrecision() {
         final GVCFWriterUnitTest.MockWriter mockWriter = new GVCFWriterUnitTest.MockWriter();
         SomaticGVCFWriter writer = new SomaticGVCFWriter(mockWriter, precisionTwoPartition);
-        Assert.assertTrue(writer.partitionPrecision == 2);
+        Assert.assertTrue(((SomaticGVCFBlockCombiner)writer.gvcfBlockCombiner).partitionPrecision == 2);
 
         writer = new SomaticGVCFWriter(mockWriter, precisionThreePartition);
-        Assert.assertTrue(writer.partitionPrecision == 3);
-        writer.addHomRefSite(makeSomaticRef("chr1", 1, -0.5005, 10), makeSomaticRefGenotype(-0.500005));
+        Assert.assertTrue(((SomaticGVCFBlockCombiner)writer.gvcfBlockCombiner).partitionPrecision == 3);
+        writer.add(makeSomaticRef("chr1", 1, -0.5005, 10));
         writer.close();
         VariantContext vc = mockWriter.emitted.get(0);
         //partitionPrecision does not affect the precision of the minLOD for the block

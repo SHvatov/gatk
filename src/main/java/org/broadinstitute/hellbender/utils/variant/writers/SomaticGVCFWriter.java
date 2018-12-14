@@ -52,5 +52,4 @@ final public class SomaticGVCFWriter extends GVCFWriter {
         return (int)Math.floor(LOD * Math.pow(10, ((SomaticGVCFBlockCombiner)gvcfBlockCombiner).partitionPrecision));
     }
 
-
 }
