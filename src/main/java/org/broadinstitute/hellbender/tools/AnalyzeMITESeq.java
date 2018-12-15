@@ -57,6 +57,7 @@ public class AnalyzeMITESeq extends GATKTool {
 
     private byte[] refSeq;
     private List<Interval> exonList;
+    private List<Integer> refCodonValues;
     private final HopscotchMap<SNVCollectionCount, Long, SNVCollectionCount> variationCounts = new HopscotchMap<>(10000000);
 
     private long nReadsTotal = 0;
@@ -72,6 +73,16 @@ public class AnalyzeMITESeq extends GATKTool {
     private static final int FRAME_PRESERVING_INDEL_INDEX = 64;
     private static final int FRAME_SHIFTING_INDEL_INDEX = 65;
     private static final int CODON_COUNT_ROW_SIZE = 66;
+    private static final int START_CODON = 0x0E;
+    private static final int STOP_OCH = 0x30;
+    private static final int STOP_AMB = 0x32;
+    private static final int STOP_OPA = 0x38;
+    private static final String[] labelForCodonValue = {
+            "AAA","AAC","AAG","AAT","ACA","ACC","ACG","ACT","AGA","AGC","AGG","AGT","ATA","ATC","ATG","ATT",
+            "CAA","CAC","CAG","CAT","CCA","CCC","CCG","CCT","CGA","CGC","CGG","CGT","CTA","CTC","CTG","CTT",
+            "GAA","GAC","GAG","GAT","GCA","GCC","GCG","GCT","GGA","GGC","GGG","GGT","GTA","GTC","GTG","GTT",
+            "TAA","TAC","TAG","TAT","TCA","TCC","TCG","TCT","TGA","TGC","TGG","TGT","TTA","TTC","TTG","TTT"
+    };
 
     @Override
     public boolean requiresReads() { return true; }
@@ -92,7 +103,7 @@ public class AnalyzeMITESeq extends GATKTool {
     @Override
     public void traverse() {
         // ignore unaligned reads and non-primary alignments
-        Stream<GATKRead> reads = getTransformedReadStream(ReadFilterLibrary.PRIMARY_LINE);
+        final Stream<GATKRead> reads = getTransformedReadStream(ReadFilterLibrary.PRIMARY_LINE);
 
         if ( !pairedMode ) {
             reads.forEach(read -> {
@@ -162,8 +173,19 @@ public class AnalyzeMITESeq extends GATKTool {
 
     @Override
     public Object onTraversalSuccess() {
-        long outputSize = variationCounts.stream().filter(entry -> entry.getCount() >= minVariantObservations).count();
-        List<SNVCollectionCount> variationEntries = new ArrayList<>((int)outputSize);
+        writeVariationCounts(getVariationEntries());
+        writeRefCoverage();
+        writeCodonCounts();
+        writeCodonFractions();
+        writeAACounts();
+        writeAAFractions();
+        writeReadCounts();
+        return null;
+    }
+
+    private List<SNVCollectionCount> getVariationEntries() {
+        final long outputSize = variationCounts.stream().filter(entry -> entry.getCount() >= minVariantObservations).count();
+        final List<SNVCollectionCount> variationEntries = new ArrayList<>((int)outputSize);
         for ( final SNVCollectionCount entry : variationCounts ) {
             if ( entry.getCount() > minVariantObservations ) {
                 variationEntries.add(entry);
@@ -174,31 +196,101 @@ public class AnalyzeMITESeq extends GATKTool {
             if ( result == 0 ) result = a.compareTo(b);
             return result;
         });
+        return variationEntries;
+    }
+
+    private void writeVariationCounts( final List<SNVCollectionCount> variationEntries ) {
         final String variantsFile = outputFilePrefix + ".variantCounts";
         try ( final OutputStreamWriter writer =
                       new OutputStreamWriter(new BufferedOutputStream(BucketUtils.createFile(variantsFile))) ) {
             for ( final SNVCollectionCount entry : variationEntries ) {
-                writer.write(entry.toString());
+                writer.write(Long.toString(entry.getCount()));
+                writer.write('\t');
+                final List<SNV> snvs = entry.getSNVs();
+                writer.write(Integer.toString(snvs.size()));
+                String sep = "\t";
+                for ( final SNV snv : snvs ) {
+                    writer.write(sep);
+                    sep = ", ";
+                    writer.write(snv.toString());
+                }
+                writer.write(describeVariantsAsCodons(snvs));
                 writer.write('\n');
             }
         } catch ( final IOException ioe ) {
             throw new UserException("Can't write "+variantsFile, ioe);
         }
+    }
 
+    private String describeVariantsAsCodons( final List<SNV> snvs ) {
+        final SortedMap<Integer, Integer> variantCodons = new TreeMap<>();
+        for ( final SNV snv : snvs ) {
+
+            //TODO: handle indels
+            if ( snv.getRefCall() == '-' || snv.getVariantCall() == '-' ) continue;
+
+            int codonIndex = 0;
+            final Iterator<Interval> exonIterator = exonList.iterator();
+            Interval currentInterval = exonIterator.next();
+            while ( snv.getRefIndex() >= currentInterval.getEnd() ) {
+                codonIndex += currentInterval.size();
+                currentInterval = exonIterator.next();
+            }
+            if ( snv.getRefIndex() < currentInterval.getStart() ) {
+                continue; // we're not in the currentInterval -- it's an intronic variation
+            }
+            codonIndex += snv.getRefIndex() - currentInterval.getStart();
+            final int shift = 2 * (2 - (codonIndex % 3));
+            codonIndex /= 3;
+            int codonValue = variantCodons.getOrDefault(codonIndex, refCodonValues.get(codonIndex));
+            final int callCode = "ACGT".indexOf(snv.getVariantCall());
+            codonValue = (codonValue & ~(3 << shift)) | (callCode << shift);
+            variantCodons.put(codonIndex, codonValue);
+        }
+        final StringBuilder sb = new StringBuilder();
+        sb.append('\t').append(variantCodons.size());
+        String prefix = "\t";
+        for ( final Map.Entry<Integer, Integer> entry : variantCodons.entrySet() ) {
+            final int codonValue = entry.getValue();
+            sb.append(prefix).append(entry.getKey()).append(':')
+                    .append(labelForCodonValue[refCodonValues.get(entry.getKey())])
+                    .append('>').append(labelForCodonValue[codonValue]);
+            prefix = ", ";
+        }
+        prefix = "\t";
+        for ( final Map.Entry<Integer, Integer> entry : variantCodons.entrySet() ) {
+            final char refAA = codonTranslation.charAt(refCodonValues.get(entry.getKey()));
+            final int codonValue = entry.getValue();
+            final boolean isStop = codonValue == STOP_OCH || codonValue == STOP_AMB || codonValue == STOP_OPA;
+            final char altAA = codonTranslation.charAt(codonValue);
+            sb.append(prefix).append(refAA==altAA ? 'S' : isStop ? 'N' : 'M').append(':')
+                    .append(refAA).append('>').append(altAA);
+            prefix = ", ";
+        }
+        return sb.toString();
+    }
+
+    private void writeRefCoverage() {
         final String refCoverageFile = outputFilePrefix + ".refCoverage";
         try ( final OutputStreamWriter writer =
                       new OutputStreamWriter(new BufferedOutputStream(BucketUtils.createFile(refCoverageFile))) ) {
+            writer.write("RefPos\tCoverage\n");
+            int refPos = 1;
             for ( final long coverage : refCoverage ) {
+                writer.write(Integer.toString(refPos++));
+                writer.write('\t');
                 writer.write(Long.toString(coverage));
                 writer.write('\n');
             }
         } catch ( final IOException ioe ) {
             throw new UserException("Can't write "+refCoverageFile, ioe);
         }
+    }
 
-        final String codonsFile = outputFilePrefix + ".codonCounts";
+    private void writeCodonCounts() {
+        final String codonCountsFile = outputFilePrefix + ".codonCounts";
         try ( final OutputStreamWriter writer =
-                      new OutputStreamWriter(new BufferedOutputStream(BucketUtils.createFile(codonsFile))) ) {
+                      new OutputStreamWriter(new BufferedOutputStream(BucketUtils.createFile(codonCountsFile))) ) {
             final int nCodons = codonCounts.length;
             writer.write("AAA\tAAC\tAAG\tAAT\tACA\tACC\tACG\tACT\tAGA\tAGC\tAGG\tAGT\tATA\tATC\tATG\tATT\t"+
                     "CAA\tCAC\tCAG\tCAT\tCCA\tCCC\tCCG\tCCT\tCGA\tCGC\tCGG\tCGT\tCTA\tCTC\tCTG\tCTT\t"+
@@ -217,12 +309,38 @@ public class AnalyzeMITESeq extends GATKTool {
                 writer.write('\n');
             }
         } catch ( final IOException ioe ) {
-            throw new UserException("Can't write "+codonsFile, ioe);
+            throw new UserException("Can't write "+codonCountsFile, ioe);
         }
+    }
 
-        final String aaFile = outputFilePrefix + ".aaCounts";
+    private void writeCodonFractions() {
+        final String codonFractFile = outputFilePrefix + ".codonFractions";
         try ( final OutputStreamWriter writer =
-                      new OutputStreamWriter(new BufferedOutputStream(BucketUtils.createFile(aaFile))) ) {
+                      new OutputStreamWriter(new BufferedOutputStream(BucketUtils.createFile(codonFractFile))) ) {
+            final int nCodons = codonCounts.length;
+            writer.write("Codon  AAA  AAC  AAG  AAT  ACA  ACC  ACG  ACT  AGA  AGC  AGG  AGT  ATA  ATC  ATG  ATT"+
+                    "  CAA  CAC  CAG  CAT  CCA  CCC  CCG  CCT  CGA  CGC  CGG  CGT  CTA  CTC  CTG  CTT"+
+                    "  GAA  GAC  GAG  GAT  GCA  GCC  GCG  GCT  GGA  GGC  GGG  GGT  GTA  GTC  GTG  GTT"+
+                    "  TAA  TAC  TAG  TAT  TCA  TCC  TCG  TCT  TGA  TGC  TGG  TGT  TTA  TTC  TTG  TTT"+
+                    "  NFS   FS    Total\n");
+            for ( int codonId = 0; codonId != nCodons; ++codonId ) {
+                writer.write(String.format("%5d", codonId + 1));
+                final long[] rowCounts = codonCounts[codonId];
+                final long total = Arrays.stream(rowCounts).sum();
+                for ( final long count : rowCounts ) {
+                    writer.write(String.format("%5.1f", 100. * count / total));
+                }
+                writer.write(String.format(" %8d\n", total));
+            }
+        } catch ( final IOException ioe ) {
+            throw new UserException("Can't write "+codonFractFile, ioe);
+        }
+    }
+
+    private void writeAACounts() {
+        final String aaCountsFile = outputFilePrefix + ".aaCounts";
+        try ( final OutputStreamWriter writer =
+                      new OutputStreamWriter(new BufferedOutputStream(BucketUtils.createFile(aaCountsFile))) ) {
             final int nCodons = codonCounts.length;
             for ( int codonId = 0; codonId != nCodons; ++codonId ) {
                 final long[] rowCounts = codonCounts[codonId];
@@ -248,25 +366,56 @@ public class AnalyzeMITESeq extends GATKTool {
                 writer.write('\n');
             }
         } catch ( final IOException ioe ) {
-            throw new UserException("Can't write "+aaFile, ioe);
+            throw new UserException("Can't write "+aaCountsFile, ioe);
         }
+    }
 
-        final String readsFile = outputFilePrefix + ".readCounts";
+    private void writeAAFractions() {
+        final String aaFractFile = outputFilePrefix + ".aaFractions";
         try ( final OutputStreamWriter writer =
-                      new OutputStreamWriter(new BufferedOutputStream(BucketUtils.createFile(readsFile))) ) {
+                      new OutputStreamWriter(new BufferedOutputStream(BucketUtils.createFile(aaFractFile))) ) {
+            final int nCodons = codonCounts.length;
+            for ( int codonId = 0; codonId != nCodons; ++codonId ) {
+                final long[] rowCounts = codonCounts[codonId];
+                final SortedMap<Character,Long> aaCounts = new TreeMap<>();
+                for ( int codonValue = 0; codonValue != N_REGULAR_CODONS; ++codonValue ) {
+                    aaCounts.merge(codonTranslation.charAt(codonValue), rowCounts[codonValue], Long::sum);
+                }
+                if ( codonId == 0 ) {
+                    writer.write("Codon");
+                    for ( final char chr : aaCounts.keySet() ) {
+                        writer.write("    ");
+                        writer.write(chr);
+                    }
+                    writer.write("    Total\n");
+                }
+                writer.write(String.format("%5d", codonId + 1));
+                final long total = Arrays.stream(rowCounts).sum();
+                for ( final long count : aaCounts.values() ) {
+                    writer.write(String.format("%5.1f", 100. * count / total));
+                }
+                writer.write(String.format(" %8d\n", total));
+            }
+        } catch ( final IOException ioe ) {
+            throw new UserException("Can't write "+aaFractFile, ioe);
+        }
+    }
+
+    private void writeReadCounts() {
+        final String readCountsFile = outputFilePrefix + ".readCounts";
+        try ( final OutputStreamWriter writer =
+                      new OutputStreamWriter(new BufferedOutputStream(BucketUtils.createFile(readCountsFile))) ) {
             final DecimalFormat df = new DecimalFormat("0.000");
             writer.write("Total Reads:\t" + nReadsTotal + "\n");
             writer.write("Unmapped Reads:\t" + nReadsUnmapped + "\t" +
-                                df.format(100.*nReadsUnmapped/nReadsTotal) + "%\n");
+                    df.format(100.*nReadsUnmapped/nReadsTotal) + "%\n");
             writer.write("LowQ Reads:\t" + nReadsLowQuality + "\t" +
-                                df.format(100.*nReadsLowQuality/nReadsTotal) + "%\n");
+                    df.format(100.*nReadsLowQuality/nReadsTotal) + "%\n");
             writer.write("LowQ Var Reads:\t" + nReadsWithLowQualityVariation + "\t" +
-                                df.format(100.*nReadsWithLowQualityVariation/nReadsTotal) + "%\n");
+                    df.format(100.*nReadsWithLowQualityVariation/nReadsTotal) + "%\n");
         } catch ( final IOException ioe ) {
-            throw new UserException("Can't write "+readsFile, ioe);
+            throw new UserException("Can't write "+readCountsFile, ioe);
         }
-
-        return null;
     }
 
     // describes an interval as a pair of offsets (0-based, half-open) on the reference sequence.
@@ -316,7 +465,7 @@ public class AnalyzeMITESeq extends GATKTool {
         }
 
         @Override
-        public int compareTo( SNV that ) {
+        public int compareTo( final SNV that ) {
             int result = Integer.compare(this.refIndex, that.refIndex);
             if ( result == 0 ) result = Byte.compare(this.refCall, that.refCall);
             if ( result == 0 ) result = Byte.compare(this.variantCall, that.variantCall);
@@ -331,7 +480,7 @@ public class AnalyzeMITESeq extends GATKTool {
 
     private static final class SNVCollectionCount
             implements Map.Entry<SNVCollectionCount, Long>, Comparable<SNVCollectionCount> {
-        private static SNV[] emptyArray = new SNV[0];
+        private static final SNV[] emptyArray = new SNV[0];
         private final SNV[] snvs;
         private long count;
         private final int hash;
@@ -353,12 +502,13 @@ public class AnalyzeMITESeq extends GATKTool {
         public Long getValue() { return count; }
 
         @Override
-        public Long setValue( Long value ) {
-            Long result = count;
+        public Long setValue( final Long value ) {
+            final Long result = count;
             count = value;
             return result;
         }
 
+        public List<SNV> getSNVs() { return Arrays.asList(snvs); }
         public long getCount() { return count; }
         public void bumpCount() { count += 1; }
 
@@ -384,18 +534,6 @@ public class AnalyzeMITESeq extends GATKTool {
             }
             if ( result == 0 ) result = Integer.compare(this.snvs.length, that.snvs.length);
             return result;
-        }
-
-        @Override
-        public String toString() {
-            final StringBuilder sb = new StringBuilder(Long.toString(count));
-            String sep = "\t";
-            for ( final SNV snv : snvs ) {
-                sb.append(sep);
-                sep = ", ";
-                sb.append(snv);
-            }
-            return sb.toString();
         }
     }
 
@@ -440,7 +578,7 @@ public class AnalyzeMITESeq extends GATKTool {
                 return;
             }
 
-            int callCode;
+            final int callCode;
             switch ( call ) {
                 case 'A': callCode = 0; break;
                 case 'C': callCode = 1; break;
@@ -466,10 +604,19 @@ public class AnalyzeMITESeq extends GATKTool {
             codonValue = (codonValue << 2) | callCode;
 
             if ( ++codonPhase == 3 ) {
-                codonValues.add( codonValue & 0x3F );
+                final int val = codonValue & 0x3F;
+                codonValues.add( val );
                 codonPhase = 0;
+                if ( val == STOP_OCH || val == STOP_AMB || val == STOP_OPA ) {
+                    while ( exonIterator.hasNext() ) { // hit stop codon -- kill any further calling
+                        currentExon = exonIterator.next();
+                    }
+                }
             }
         }
+
+        public int getFirstCodonIndex() { return firstCodonIndex; }
+        public List<Integer> getCodonValues() { return codonValues; }
 
         public boolean isConsistent( final CodonTracker that ) {
             final int startOverlap = Math.max(this.firstCodonIndex, that.firstCodonIndex);
@@ -593,6 +740,26 @@ public class AnalyzeMITESeq extends GATKTool {
 
         // it's helpful to have this 0-length sentinel at the end of the list
         exonList.add(new Interval(Integer.MAX_VALUE, Integer.MAX_VALUE));
+
+        int refIndex = 0;
+        final CodonTracker codonTracker = new CodonTracker(exonList, refIndex);
+        final int refLen = refSeq.length;
+        for ( int idx = 0; idx != refLen; ++idx ) {
+            codonTracker.push(refIndex, refSeq[refIndex]);
+            refIndex += 1;
+        }
+        refCodonValues = codonTracker.getCodonValues();
+        if ( refCodonValues.size() != codonCounts.length ) {
+            throw new UserException("Inconsistent parsing of reference sequence into expressed codons. " +
+                                        "Do you have an upstream stop codon?");
+        }
+        if ( refCodonValues.get(0) != START_CODON ) {
+            System.err.println("WARNING:  Your ORF does not start with ATG, as expected.");
+        }
+        final int lastCodon = refCodonValues.get(refCodonValues.size()-1);
+        if ( lastCodon != STOP_OCH && lastCodon != STOP_AMB && lastCodon != STOP_OPA ) {
+            System.err.println("WARNING:  Your ORF does not end with a stop codon, as expected.");
+        }
     }
 
     private ReadReport processRead( final GATKRead read ) {
@@ -692,7 +859,7 @@ public class AnalyzeMITESeq extends GATKTool {
                     variations.add(new SNV(refIndex, (byte)'-', readSeq[readIndex]));
                     codonTracker.push(refIndex, (byte)'+');
                 } else if ( cigarOperator == CigarOperator.M ) {
-                    byte call = (byte) (readSeq[readIndex] & LOWERCASE_MASK);
+                    final byte call = (byte) (readSeq[readIndex] & LOWERCASE_MASK);
                     if (call != refSeq[refIndex]) {
                         // low-quality variations spoil the read
                         if (readQuals[readIndex] < minQ) {
@@ -788,7 +955,7 @@ public class AnalyzeMITESeq extends GATKTool {
             refInterval2 = refCoverageItr2.hasNext() ? refCoverageItr2.next() : null;
         }
         while ( refInterval1 != null || refInterval2 != null ) {
-            Interval testInterval;
+            final Interval testInterval;
             if ( refInterval1 == null ) {
                 testInterval = refInterval2;
                 refInterval2 = refCoverageItr2.hasNext() ? refCoverageItr2.next() : null;
