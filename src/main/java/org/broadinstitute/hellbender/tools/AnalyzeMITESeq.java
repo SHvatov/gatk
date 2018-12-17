@@ -227,6 +227,7 @@ public class AnalyzeMITESeq extends GATKTool {
         final Iterator<SNV> snvIterator = snvs.iterator();
         String indelCodons = null;
         String indelAAs = null;
+        int indelGroups = 0;
         while ( snvIterator.hasNext() ) {
             SNV snv = snvIterator.next();
             int codonIndex = 0;
@@ -279,13 +280,14 @@ public class AnalyzeMITESeq extends GATKTool {
                 }
                 final StringBuilder indelCodonsBuilder = new StringBuilder();
                 final StringBuilder indelAAsBuilder = new StringBuilder();
+                indelGroups = 1;
                 if ( lengthDiff % 3 != 0 ) { // if frame-shifting indel
                     if ( lengthDiff > 0 ) {
                         indelCodonsBuilder.append(codonIndex).append(":FSI(").append(lengthDiff).append(')');
                     } else {
                         indelCodonsBuilder.append(codonIndex).append(":FSD(").append(-lengthDiff).append(')');
                     }
-                    indelAAsBuilder.append('\t').append(codonTracker.getCodonValues().size()).append('\t');
+                    indelAAsBuilder.append("F(").append(codonTracker.getCodonValues().size()).append("):");
                     for ( final int val : codonTracker.getCodonValues() ) {
                         indelAAsBuilder.append(codonTranslation.charAt(val));
                     }
@@ -293,11 +295,12 @@ public class AnalyzeMITESeq extends GATKTool {
                     lengthDiff /= 3;
                     int variantCodonIdx = 0;
                     final List<Integer> varCodons = codonTracker.getCodonValues();
+                    final int variantIndexEnd = varCodons.size();
                     String prefix = "";
                     if ( lengthDiff > 0 ) {
                         indelCodonsBuilder.append(codonIndex).append(":--->");
                         indelAAsBuilder.append("I:->");
-                        while ( lengthDiff-- > 0 ) {
+                        while ( lengthDiff-- > 0 && variantCodonIdx < variantIndexEnd ) {
                             final int altValue = varCodons.get(variantCodonIdx++);
                             indelCodonsBuilder.append(prefix).append(labelForCodonValue[altValue]);
                             indelAAsBuilder.append(codonTranslation.charAt(altValue));
@@ -318,11 +321,11 @@ public class AnalyzeMITESeq extends GATKTool {
                         prefix = ", ";
                     }
                     final int codonIndexEnd = refCodonValues.size();
-                    final int variantIndexEnd = varCodons.size();
                     while ( codonIndex < codonIndexEnd && variantCodonIdx < variantIndexEnd ) {
                         final int refValue = refCodonValues.get(codonIndex++);
                         final int altValue = varCodons.get(variantCodonIdx++);
                         if ( refValue != altValue ) {
+                            indelGroups += 1;
                             indelCodonsBuilder.append(prefix).append(codonIndex).append(':')
                                     .append(labelForCodonValue[refValue]).append('>')
                                     .append(labelForCodonValue[altValue]);
@@ -343,7 +346,7 @@ public class AnalyzeMITESeq extends GATKTool {
             }
         }
         final StringBuilder sb = new StringBuilder();
-        sb.append('\t').append(variantCodons.size());
+        sb.append('\t').append(variantCodons.size() + indelGroups);
         String prefix = "\t";
         for ( final Map.Entry<Integer, Integer> entry : variantCodons.entrySet() ) {
             final int codonValue = entry.getValue();
