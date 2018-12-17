@@ -296,6 +296,7 @@ public class AnalyzeMITESeq extends GATKTool {
                     int variantCodonIdx = 0;
                     final List<Integer> varCodons = codonTracker.getCodonValues();
                     final int variantIndexEnd = varCodons.size();
+                    final int codonIndexEnd = refCodonValues.size();
                     String prefix = "";
                     if ( lengthDiff > 0 ) {
                         indelCodonsBuilder.append(codonIndex).append(":--->");
@@ -311,7 +312,7 @@ public class AnalyzeMITESeq extends GATKTool {
                         indelCodonsBuilder.append(codonIndex);
                         indelAAsBuilder.append("D:");
                         prefix = ":";
-                        while ( lengthDiff++ < 0 ) {
+                        while ( lengthDiff++ < 0 && codonIndex < codonIndexEnd ) {
                             final int refValue = refCodonValues.get(codonIndex++);
                             indelCodonsBuilder.append(prefix).append(labelForCodonValue[refValue]);
                             indelAAsBuilder.append(codonTranslation.charAt(refValue));
@@ -320,7 +321,6 @@ public class AnalyzeMITESeq extends GATKTool {
                         indelAAsBuilder.append(">-");
                         prefix = ", ";
                     }
-                    final int codonIndexEnd = refCodonValues.size();
                     while ( codonIndex < codonIndexEnd && variantCodonIdx < variantIndexEnd ) {
                         final int refValue = refCodonValues.get(codonIndex++);
                         final int altValue = varCodons.get(variantCodonIdx++);
