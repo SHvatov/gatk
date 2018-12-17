@@ -83,7 +83,7 @@ public final class ReblockGVCF extends VariantWalker {
     @Advanced
     @Argument(fullName=HaplotypeCallerArgumentCollection.GQ_BAND_LONG_NAME, shortName=HaplotypeCallerArgumentCollection.GQ_BAND_SHORT_NAME,
             doc="Exclusive upper bounds for reference confidence GQ bands (must be in [1, 100] and specified in increasing order)")
-    public List<Number> GVCFGQBands = new ArrayList<>();
+    public List<Integer> GVCFGQBands = new ArrayList<>();
     {
         GVCFGQBands.add(20); GVCFGQBands.add(100);
     }
@@ -162,7 +162,7 @@ public final class ReblockGVCF extends VariantWalker {
         VariantContextWriter writer = createVCFWriter(outputFile);
 
         try {
-            vcfWriter = new GVCFWriter(writer, GVCFGQBands, PLOIDY_TWO);
+            vcfWriter = new GVCFWriter(writer, new ArrayList<Number>(GVCFGQBands), PLOIDY_TWO);
         } catch ( IllegalArgumentException e ) {
             throw new IllegalArgumentException("GQBands are malformed: " + e.getMessage(), e);
         }

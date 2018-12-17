@@ -8,10 +8,11 @@ import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.AssemblyBased
 import org.broadinstitute.hellbender.tools.walkers.haplotypecaller.ReferenceConfidenceMode;
 
 import java.io.File;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
-public class M2ArgumentCollection extends AssemblyBasedCallerArgumentCollection {
+public class M2ArgumentCollection extends AssemblyBasedCallerArgumentCollection implements Serializable {
     private static final long serialVersionUID = 9341L;
     public static final String TUMOR_SAMPLE_LONG_NAME = "tumor-sample";
     public static final String TUMOR_SAMPLE_SHORT_NAME = "tumor";
